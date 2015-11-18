@@ -1,8 +1,8 @@
 require "active_support/core_ext/date/calculations"
 require "active_support/core_ext/numeric/time"
 require "active_support/core_ext/object/try"
-require "google/api_client"
 require "google/api_client/client_secrets"
+require "google/apis/calendar_v3"
 require "ruboty"
 require "time"
 
@@ -57,7 +57,7 @@ module Ruboty
       class Client
         APPLICATION_NAME = "ruboty-google_calendar"
         AUTH_URI = "https://accounts.google.com/o/oauth2/auth"
-        SCOPE = "https://www.googleapis.com/auth/calendar"
+        SCOPE = Google::Apis::CalendarV3::AUTH_CALENDAR
         TOKEN_URI = "https://accounts.google.com/o/oauth2/token"
 
         def initialize(client_id: nil, client_secret: nil, redirect_uri: nil, refresh_token: nil)
@@ -70,35 +70,32 @@ module Ruboty
 
         # @param [String] calendar_id
         # @param [ActiveSupport::Duration] duration
+        # @return [Google::Apis::CalendarV3::Events]
         def list_events(calendar_id: nil, duration: nil)
-          api_client.execute(
-            api_method: calendar.events.list,
-            parameters: {
-              calendarId: calendar_id,
-              singleEvents: true,
-              orderBy: "startTime",
-              timeMin: Time.now.iso8601,
-              timeMax: duration.since.iso8601
-            }
-          ).data
+          calendar_service.list_events(
+            calendar_id,
+            single_events: true,
+            order_by: "startTime",
+            time_min: Time.now.iso8601,
+            time_max: duration.since.iso8601,
+          )
         end
 
         private
 
-        def api_client
-          @api_client ||= begin
-            _api_client = Google::APIClient.new(
-              application_name: APPLICATION_NAME,
-              application_version: Ruboty::GoogleCalendar::VERSION,
-            )
-            _api_client.authorization = authorization
-            _api_client.authorization.scope = SCOPE
-            _api_client
+        def calendar_service
+          @calendar_service ||= begin
+            _calendar_service = Google::Apis::CalendarV3::CalendarService.new
+            _calendar_service.client_options.application_name = APPLICATION_NAME
+            _calendar_service.client_options.application_version = Ruboty::GoogleCalendar::VERSION
+            _calendar_service.authorization = authorization
+            _calendar_service.authorization.scope = SCOPE
+            _calendar_service
           end
         end
 
         def authenticate!
-          api_client.authorization.fetch_access_token!
+          calendar_service.authorization.fetch_access_token!
         end
 
         def authorization
@@ -117,10 +114,6 @@ module Ruboty
               token_uri: TOKEN_URI,
             },
           )
-        end
-
-        def calendar
-          @calendar ||= api_client.discovered_api("calendar", "v3")
         end
       end
 
@@ -144,21 +137,21 @@ module Ruboty
           when all_day?
             "--:--"
           when finished_in_same_day?
-            @item.end.date_time.localtime.strftime("%H:%M")
+            @item.end.date_time.strftime("%H:%M")
           else
-            @item.end.date_time.localtime.strftime("%Y-%m-%d %H:%M")
+            @item.end.date_time.strftime("%Y-%m-%d %H:%M")
           end
         end
 
         def finished_in_same_day?
-          @item.start.date_time.localtime.day == @item.end.date_time.localtime.day
+          @item.start.date_time.day == @item.end.date_time.day
         end
 
         def started_at
           if all_day?
             "#{@item.start.date} --:--"
           else
-            @item.start.date_time.localtime.strftime("%Y-%m-%d %H:%M")
+            @item.start.date_time.strftime("%Y-%m-%d %H:%M")
           end
         end
 
